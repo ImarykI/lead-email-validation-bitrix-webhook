@@ -1,45 +1,23 @@
-import express from 'express';
 import NeverBounce from 'neverbounce';
+import { ZeroBounceSDK } from '@ts-ignore@zerobounce/zero-bounce-sdk';
 import {B24Hook} from '@bitrix24/b24jssdk';
-import 'dotenv/config.js';
+import dotenv from 'dotenv';
 import {getEmailFromLeadContact} from './getEmailFromLeadContact.js'
+
+dotenv.config({path: "./env/local.env"});
 
 const B24 = B24Hook.fromWebhookUrl(process.env.BITRIX_WEBHOOK);
 const NB_CLIENT = new NeverBounce({apiKey: process.env.NB_API_KEY});
-const app = express();
+const zerobounce = new ZeroBounceSDK();
+zerobounce.init(process.env.ZB_API_KEY);
+
+const result = await zerobounce.validateEmail("invalid@example.com");
+
+console.log(result);
 
 
-app.use(express.json());
 
-app.get('/', (req, res) => {
-    res.status(200).json({
-        message: "The server is live"
-    });
-
-    process.exit(0);
-});
-
-app.post('/webhook/lead-handler', async (req, res) => {
-   
-    await handleEmails(req, res);
-
-    process.exit(0);
-});
-
-app.use((req, res) => {
-    res.status(404).json({
-        message: "Cannot find page"
-    });
-    process.exit(1);
-});
-
-const port = Number(process.env.PORT) || 3005;
-
-app.listen(port, () => {
-    console.log("Server is running on port", port);
-});
-
-const handleEmails = async (req, res) => {
+const handleLeadsFromWebformEmailValidation = async (req, res) => {
     const apiKey = req.query.api_key;
 
     if(apiKey === process.env.WEBHOOK_API_KEY){
@@ -70,9 +48,9 @@ const handleEmails = async (req, res) => {
         // 1        invalid     no
         // 2        disposable  no
         // 3        catchall    maybe(yes in most cases won't generate error)
-        // 4        unknown     no
+        // 4        unknown     no, but many custom domains and less popular ones are marked this way, so yes
         try{
-            if(emailVerificationResult.not([1,2,4])){ 
+            if(emailVerificationResult.not([1,2])){ 
                 await B24.callMethod(
                     'crm.timeline.comment.add',
                     {
@@ -161,6 +139,8 @@ const handleEmails = async (req, res) => {
             message : `${new Date().toLocaleString()} : No handler found for your request. Or API Key doesn't match.`
         });
 
-        console.error(`${new Date().toLocaleString()} : No handler found for your request. Or API Key doesn't match.`)
+        console.error(`${new Date().toLocaleString()} : No handler found for your request. Or API Key doesn't match.`);
     }
 }
+
+export {handleLeadsFromWebformEmailValidation}

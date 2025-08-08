@@ -11,9 +11,11 @@
   "license": "MIT",
   "dependencies": {
     "@bitrix24/b24jssdk": "^0.4.5",
+    "@zerobounce/zero-bounce-sdk": "^1.1.2",
     "body-parser": "^2.2.0",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
+    "mysql2": "^3.14.3",
     "neverbounce": "^5.0.5"
   },
   "devDependencies": {
