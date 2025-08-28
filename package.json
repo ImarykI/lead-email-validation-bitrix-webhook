@@ -1,20 +1,21 @@
 {
   "name": "bitrix-email-validation",
-  "version": "1.0.0",
-  "description": "An app that gets the info from a CRM lead, checks the email with NeverBounce, then marks the CRM lead as valid or invalid for email markeing, depending on the result from NeverBounce API.",
+  "version": "1.1.0",
+  "description": "An app that gets the info from a CRM lead, checks the email with ZeroBounce, then marks the CRM lead as valid or invalid for email markeing, depending on the result from ZeroBounce API.",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "nodemon -r dotenv/config.js src/index.js dotenv_config_path=env/local.env"
+    "dev": "nodemon -r dotenv/config.js index.js dotenv_config_path=.env"
   },
   "author": "Rotari Miroslav",
   "license": "MIT",
   "dependencies": {
     "@bitrix24/b24jssdk": "^0.4.5",
+    "@zerobounce/zero-bounce-sdk": "^1.1.2",
     "body-parser": "^2.2.0",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
-    "neverbounce": "^5.0.5"
+    "mysql2": "^3.14.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
