@@ -1,20 +1,13 @@
-import NeverBounce from 'neverbounce';
-import { ZeroBounceSDK } from '@ts-ignore@zerobounce/zero-bounce-sdk';
+import 'dotenv/config.js'
+// @ts-ignore 
+import ZeroBounceSDK from '@zerobounce/zero-bounce-sdk';
 import {B24Hook} from '@bitrix24/b24jssdk';
-import dotenv from 'dotenv';
-import {getEmailFromLeadContact} from './getEmailFromLeadContact.js'
-
-dotenv.config({path: "./env/local.env"});
+import {getFirstEmailFromLeadContact} from './getFirstEmailFromLeadContact.js'
+import { getEmailVerificationStatusFromDB, addVerifiedEmailToDB } from './database.js';
 
 const B24 = B24Hook.fromWebhookUrl(process.env.BITRIX_WEBHOOK);
-const NB_CLIENT = new NeverBounce({apiKey: process.env.NB_API_KEY});
 const zerobounce = new ZeroBounceSDK();
 zerobounce.init(process.env.ZB_API_KEY);
-
-const result = await zerobounce.validateEmail("invalid@example.com");
-
-console.log(result);
-
 
 
 const handleLeadsFromWebformEmailValidation = async (req, res) => {
@@ -31,7 +24,7 @@ const handleLeadsFromWebformEmailValidation = async (req, res) => {
             console.error(`${new Date().toLocaleString()} : Bad request. Missing lead ID or leadID is not of valid type number. Attempted ID: ${leadId}`);
             return;
         }
-        const email = await getEmailFromLeadContact(leadId);
+        const email = await getFirstEmailFromLeadContact(leadId);
         
         if(!email || typeof email === "undefined"){
             res.status(400).json({
@@ -41,16 +34,95 @@ const handleLeadsFromWebformEmailValidation = async (req, res) => {
             return;
         }
 
-        const emailVerificationResult = await NB_CLIENT.single.check(email);
-        
-        // CODES    SEMANTIC    OK TO SEND?
-        // 0        valid       yes
-        // 1        invalid     no
-        // 2        disposable  no
-        // 3        catchall    maybe(yes in most cases won't generate error)
-        // 4        unknown     no, but many custom domains and less popular ones are marked this way, so yes
+//******************************* Check with the DB first */
         try{
-            if(emailVerificationResult.not([1,2])){ 
+            const result = await getEmailVerificationStatusFromDB(email);
+
+            if(result){
+                if(['valid', 'catch-all'].includes(result)){ 
+                    await B24.callMethod(
+                        'crm.lead.update',
+                        {
+                            id: leadId,
+                            fields: {
+                                UF_CRM_1752839236813 : "N", //Boolean custom field. If 'Y' lead has invalid email, if 'N' lead has valid email
+
+                                UF_CRM_1754902962279 : "Y"  //Boolean custom field. If 'Y' - email was verified succesfully
+                            },
+                            params: {
+                                REGISTER_SONET_EVENT: "Y"
+                            }
+                        }
+                    );
+
+                    await B24.callMethod(
+                        'crm.timeline.comment.add',
+                        {
+                            fields: {
+                                ENTITY_ID : leadId,
+                                ENTITY_TYPE : 'lead',
+                                AUTHOR_ID : process.env.DAD_BX_USER,
+                                COMMENT : `Emailul a fost verificat din DB și este valid.`
+                            }
+                        }
+                    );
+
+                    res.status(200).json({
+                        message: `${new Date().toLocaleString()} : Emailul ${email} a fost validat din DB. -> VALID`
+                    });
+                    
+                    return;
+
+                } else{
+                    await B24.callMethod(
+                        'crm.lead.update',
+                        {
+                            id: leadId,
+                            fields: {
+                                UF_CRM_1752839236813 : "Y", //Boolean custom field. If 'Y' lead has invalid email, if 'N' lead has valid email
+                                
+                                UF_CRM_1754902962279 : "Y"  //Boolean custom field. If 'Y' - email was verified succesfully
+                            
+                            },
+                            params: {
+                                REGISTER_SONET_EVENT: "Y"
+                            }
+                        }
+                    );
+
+                    await B24.callMethod(
+                        'crm.timeline.comment.add',
+                        {
+                            fields: {
+                                ENTITY_ID : leadId,
+                                ENTITY_TYPE : 'lead',
+                                AUTHOR_ID : process.env.DAD_BX_USER,
+                                COMMENT : 
+                                `Emailul a fost verificat din DB și este INVALID. Nu trimiteți emailuri către acest contact.`
+                            }
+                        }
+                    );
+
+                    res.status(200).json({
+                        message: `${new Date().toLocaleString()} : Emailul ${email} a fost validat din DB. -> INVALID`
+                    });
+                    return;
+                }
+            }
+
+        }catch(error){
+            console.error(new Date().toLocaleString(), ': There is a DB error.', error.message);
+            res.status(500).json({
+                message: `${new Date().toLocaleString()} : There is a DB Error -> ${error.message}`
+            });
+            return;
+        }
+//******************************** Validate using ZeroBounce */
+    const {status, sub_status, did_you_mean} = await zerobounce.validateEmail(email);
+
+        try{            
+            if(did_you_mean){
+
                 await B24.callMethod(
                     'crm.timeline.comment.add',
                     {
@@ -58,7 +130,69 @@ const handleLeadsFromWebformEmailValidation = async (req, res) => {
                             ENTITY_ID : leadId,
                             ENTITY_TYPE : 'lead',
                             AUTHOR_ID : process.env.DAD_BX_USER,
-                            COMMENT : "Emailul a fost verificat și este valid."
+                            COMMENT : 
+                            `Posibil este o eroare de sintaxă. \n
+                            Probabil adresa corectă este: ${did_you_mean} \n
+                            Necesită verificare manuală.`
+                        }
+                    }
+                );
+            }
+
+            if(status === 'unknown'){
+                await B24.callMethod(
+                    'crm.lead.update',
+                    {
+                        id: leadId,
+                        fields: {
+                            UF_CRM_1752839236813 : "N", //Boolean custom field. If 'Y' lead has invalid email, if 'N' lead has valid email
+
+                            UF_CRM_1754902962279 : "Y"  //Boolean custom field. If 'Y' - email was verified succesfully
+                        },
+                        params: {
+                            REGISTER_SONET_EVENT: "Y"
+                        }
+                    }
+                );
+
+                await B24.callMethod(
+                    'crm.timeline.comment.add',
+                    {
+                        fields: {
+                            ENTITY_ID : leadId,
+                            ENTITY_TYPE : 'lead',
+                            AUTHOR_ID : process.env.DAD_BX_USER,
+                            COMMENT : 
+                            `Emailul nu poate fi verificat de către ZeroBounce. Poate fi considerat valid, dacă pare a fi dintr-o sursă credibilă.\n
+                            Substatus: ${sub_status}`
+                        }
+                    }
+                );
+            } 
+            else if(['valid', 'catch-all'].includes(status)){ 
+                await B24.callMethod(
+                    'crm.lead.update',
+                    {
+                        id: leadId,
+                        fields: {
+                            UF_CRM_1752839236813 : "N", //Boolean custom field. If 'Y' lead has invalid email, if 'N' lead has valid email
+
+                            UF_CRM_1754902962279 : "Y"  //Boolean custom field. If 'Y' - email was verified succesfully
+                        },
+                        params: {
+                            REGISTER_SONET_EVENT: "Y"
+                        }
+                    }
+                );
+                console.log('sub_status:', sub_status, typeof sub_status);
+                await B24.callMethod(
+                    'crm.timeline.comment.add',
+                    {
+                        fields: {
+                            ENTITY_ID : leadId,
+                            ENTITY_TYPE : 'lead',
+                            AUTHOR_ID : process.env.DAD_BX_USER,
+                            COMMENT : `Emailul a fost verificat și este valid.`
                         }
                     }
                 );
@@ -74,8 +208,10 @@ const handleLeadsFromWebformEmailValidation = async (req, res) => {
                     {
                         id: leadId,
                         fields: {
-                        //Boolean custom field. If 'Y' lead has invalid email, if 'N' lead has valid email
-                            UF_CRM_1752839236813 : "Y"                             
+                            UF_CRM_1752839236813 : "Y", //Boolean custom field. If 'Y' lead has invalid email, if 'N' lead has valid email
+                            
+                            UF_CRM_1754902962279 : "Y"  //Boolean custom field. If 'Y' - email was verified succesfully
+                           
                         },
                         params: {
                             REGISTER_SONET_EVENT: "Y"
@@ -90,7 +226,9 @@ const handleLeadsFromWebformEmailValidation = async (req, res) => {
                             ENTITY_ID : leadId,
                             ENTITY_TYPE : 'lead',
                             AUTHOR_ID : process.env.DAD_BX_USER,
-                            COMMENT : "Emailul a fost verificat și este INVALID. Nu trimiteți emailuri către acest contact."
+                            COMMENT : 
+                            `Emailul a fost verificat și este INVALID. Nu trimiteți emailuri către acest contact.\n
+                            Substatus: ${sub_status}`
                         }
                     }
                 );
@@ -102,36 +240,13 @@ const handleLeadsFromWebformEmailValidation = async (req, res) => {
             }
         }
         catch(err) {
-            // Handle errors with type checking
-            if (err instanceof Error) {
-                switch(err.type) {
-                    case NeverBounce.errors.AuthError:
-                    console.error('Auth Error:', err.message);
-                    break;
-                    case NeverBounce.errors.BadReferrerError:
-                    console.error('Bad Referrer Error:', err.message);
-                    break;
-                    case NeverBounce.errors.ThrottleError:
-                    console.error('Throttle Error:', err.message);
-                    break;
-                    case NeverBounce.errors.GeneralError:
-                    console.error('General Error:', err.message);
-                    break;
-                    default:
-                    console.error('Error:', err.message);
-                    break;   
-                }
-                res.status(500).json({
-                    message: `${new Date().toLocaleString()} : There is a NB Error -> ${err.message}`
-                });
-            } 
-            else {
-                console.error('Unknown error:', err);
-
-                res.status(500).json({
-                    message: `${new Date().toLocaleString()} : There is an Unknown Error -> ${err.message}`
-                });
-            }
+            console.error(err);
+            res.status(500).json({
+                message: `${new Date().toLocaleString()} : There is a ZeroBounce Error -> ${err.message}`
+            });
+        }
+        finally{
+            await addVerifiedEmailToDB(email, status);
         }
     } 
     else {

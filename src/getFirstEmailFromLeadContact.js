@@ -1,12 +1,11 @@
 import { B24Hook } from "@bitrix24/b24jssdk";
-import dotenv from 'dotenv';
-dotenv.config({path: "./env/local.env"});
+import 'dotenv/config.js'
 
 const YES = 'Y';
 
 const B24 = B24Hook.fromWebhookUrl(process.env.BITRIX_WEBHOOK);
 
-const getEmailFromLeadContact = async (leadId) => {
+const getFirstEmailFromLeadContact = async (leadId) => {
     
     const leadContactResult = await B24.callMethod(
         'crm.lead.contact.items.get',
@@ -17,10 +16,12 @@ const getEmailFromLeadContact = async (leadId) => {
 
     const contactsFromResult = leadContactResult.getData().result;
     const primaryContact = contactsFromResult.find(contact => contact["IS_PRIMARY"] === YES);
+
     if (!primaryContact){
         console.error(new Date().toLocaleString(), `: Lead ${leadId} doesn't have a Primary Email adress.`);
         return undefined;
     }
+    
     const contactId = primaryContact["CONTACT_ID"];
 
     const contactResult = await B24.callMethod(
@@ -42,4 +43,4 @@ const getEmailFromLeadContact = async (leadId) => {
     return firstEmail["VALUE"];
 }
 
-export {getEmailFromLeadContact}
+export {getFirstEmailFromLeadContact}

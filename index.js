@@ -1,5 +1,5 @@
 import express from 'express';
-import { handleLeadsFromWebformEmailValidation } from './src/handleLeadsFromWebformEmailValidation';
+import { handleLeadsFromWebformEmailValidation } from './src/handleLeadsFromWebformEmailValidation.js';
 
 const app = express();
 
@@ -10,7 +10,7 @@ app.get('/', (req, res) => {
     res.status(200).json({
         message: "The server is live"
     });
-
+    
     process.exit(0);
 });
 

@@ -1,15 +1,32 @@
-import mysql from "mysql2";
-import dotenv from "dotenv"
+import { initPool } from "./dbPoll.js";
 
-dotenv.config({path: "./env/database.env"});
+const pool = initPool();
 
-const pool = mysql.createPool({
-    host : process.env.MYSQL_HOST,
-    user : process.env.MYSQL_USER,
-    password : process.env.MYSQL_PASSWORD,
-    database : process.env.MYSQL_DATABASE
-}).promise();
+//Return previous email verification status if exists, otherwise, return null
+const getEmailVerificationStatusFromDB = async (email) => {
 
-const [result] = await pool.query("SELECT * FROM verified_emails");
+    const [[result]] = await pool.query(
+        `SELECT verification_status
+        FROM verified_emails
+        WHERE email = ?
+        `, [email]
+    );
 
-console.log(result);
+    if(!result){
+        return null;
+    }
+
+    return Object.values(result)[0];
+}
+
+const addVerifiedEmailToDB = async (email, status) => {
+        const result = await pool.query(
+            `INSERT INTO verified_emails (email, verification_status)
+            VALUES (?, ?)
+            `, [email, status]
+        );
+
+        return result;
+}
+
+export {getEmailVerificationStatusFromDB, addVerifiedEmailToDB}

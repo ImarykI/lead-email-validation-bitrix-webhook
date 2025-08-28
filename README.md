@@ -6,11 +6,7 @@ The app runs all the time on a cPanel shared hosting server. It listens to a POS
 
 With the Lead ID stored, it calls the required methods of the Bitrix24 RESTful API and gets the email from the lead contact.
 
-Then it calls the *single.check()* method on NeverBound to verify the email:
-
-- If **invalid, disposable, or unknown**, a custom boolean field in CRM is set to true and an invalid comment is added to the lead;
-
-- otherwise, just add a comment to notify the user that the lead was in fact verified;
+> **!!!** I no longer use *NeverBounce* for validation and won't recommend it at all. A third of verified emails where marked as **unknown**, but the credits where used for them. **Feels like a rip-off**. I migrated the app to ZeroBounce. A much more mature service that acctually gives more info about each verified email.
 
 Now I can set the condition in Bitrix24 Robots: if **custom_field** is false, then execute *Email Sending Automation*.
 
